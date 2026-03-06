@@ -32,7 +32,7 @@ app.post("/tweet", async (req, res) => {
   };
 
   const requestData = {
-    url: "https://api.x.com/2/tweets",
+    url: "https://api.twitter.com/2/tweets",
     method: "POST"
   };
 
