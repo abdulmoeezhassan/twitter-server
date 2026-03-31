@@ -2,9 +2,17 @@ const express = require("express");
 const axios = require("axios");
 const OAuth = require("oauth-1.0a");
 const crypto = require("crypto");
+const cors = require('cors');
 
 const app = express();
 app.use(express.json());
+app.use(cors());
+
+
+const API_KEY = "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";
+const BTC_BUCKETS_DATA_SOURCE_ID = "329b26a4-3077-808e-b870-000b9ddd1274";
+const BTC_TASKS_DATA_SOURCE_ID = "312b26a4-3077-8071-b771-000b9f20bebf";
+
 
 app.post("/tweet", async (req, res) => {
   const { consumerKey, consumerSecret, accessToken, accessTokenSecret, text, mediaId } = req.body;
@@ -21,7 +29,7 @@ app.post("/tweet", async (req, res) => {
     const token = { key: accessToken, secret: accessTokenSecret };
  
     const requestData = {
-      url: "https://api.x.com/2/tweets",
+      url: "https://api.twitter.com/2/tweets",
       method: "POST",
     };
  
@@ -171,5 +179,289 @@ app.post("/upload-media-from-url", async (req, res) => {
     );
   }
 });
+
+
+//Notion API routes
+
+async function getBuckets(filterByClientId = null) {
+  try {
+    const response = await fetch(`https://api.notion.com/v1/data_sources/${BTC_BUCKETS_DATA_SOURCE_ID}/query`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.NOTION_API_KEY}`,
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      body: JSON.stringify({ page_size: 100 })
+    });
+
+    const data = await response.json();
+
+    let buckets = data.results.map(page => {
+      const props = page.properties;
+      const totalPoints = props["Total Points"].rollup.number;
+      const completedValue = props["Completed Value"].rollup.number;
+      const progressDecimal = props["Progress %"].formula.number;
+
+      return {
+        id: page.id,
+        name: props["Name"].title[0]?.plain_text ?? "Untitled",
+        icon: page.icon?.emoji ?? null,
+        progressPercent: (progressDecimal * 100).toFixed(2) + "%",
+        completedPoints: completedValue,
+        totalPoints: totalPoints,
+        clientIds: props["👥 BTC Clients"].relation.map(r => r.id)
+      };
+    });
+
+    if (filterByClientId) {
+      buckets = buckets.filter(bucket =>
+        bucket.clientIds.includes(filterByClientId)
+      );
+    }
+
+    return buckets;
+
+  } catch (error) {
+    console.error("Error:", error.message);
+  }
+}
+
+async function getClients() {
+  try {
+    const response = await fetch(`https://api.notion.com/v1/data_sources/312b26a4-3077-800e-9a05-000bac5f3971/query`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${API_KEY}`,
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      body: JSON.stringify({ page_size: 100 })
+    });
+
+    const data = await response.json();
+
+    const clients = data.results.map(page => {
+      const props = page.properties;
+      return {
+        id: page.id,
+        name: props["Name"].title[0]?.plain_text ?? "Untitled",
+        status: props["Status"]?.status?.name ?? null,
+        email: props["Email"]?.email ?? null,
+        phone: props["Phone"]?.phone_number ?? null,
+        overallProgress: (props["Overall Progress"]?.formula?.number * 100).toFixed(2) + "%" ?? null,
+        totalPoints: props["Total Points"]?.rollup?.number ?? null,
+        completedPoints: props["Completed Points"]?.rollup?.number ?? null,
+        contractStartDate: props["Contract Start Date"]?.date?.start ?? null,
+        contractEndDate: props["Contract End Date"]?.date?.end ?? null,
+      };
+    });
+
+    return clients;
+
+  } catch (error) {
+    console.error("Error:", error.message);
+  }
+}
+
+const HEADERS = {
+  "Authorization": `Bearer ${API_KEY}`,
+  "Content-Type": "application/json",
+  "Notion-Version": "2025-09-03"
+};
+
+async function getTasks() {
+  try {
+    const response = await fetch(
+      `https://api.notion.com/v1/data_sources/${BTC_TASKS_DATA_SOURCE_ID}/query`,
+      {
+        method: "POST",
+        headers: HEADERS,
+        body: JSON.stringify({ page_size: 100 })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || "Notion API Error");
+    }
+
+    return data.results.map(page => {
+      const props = page.properties;
+
+      return {
+        id: page.id,
+        name: props["Name"]?.title[0]?.plain_text || "Untitled",
+        points: props["Points"]?.number || 0,
+        completedPoints: props["Completed Points"]?.formula?.number || 0,
+        stage: props["Stage"]?.status?.name || null,
+        clientIds: props["BTC Clients"]?.relation?.map(r => r.id) || [],
+        createdTime: page.created_time,
+        lastEditedTime: page.last_edited_time
+      };
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching tasks:", error.message);
+    throw error;
+  }
+}
+
+// ===== CORE LOGIC =====
+function getMonthlyAverage(tasks, clientId) {
+  // 1. Filter by client
+  const filtered = tasks.filter(task =>
+    task.clientIds.includes(clientId)
+  );
+
+  const monthlyMap = {};
+
+  filtered.forEach(task => {
+    if (!task.createdTime) return;
+
+    const date = new Date(task.createdTime);
+
+    const monthKey = date.toLocaleString('default', {
+      month: 'short',
+      year: 'numeric'
+    });
+
+    if (!monthlyMap[monthKey]) {
+      monthlyMap[monthKey] = {
+        totalCompletedPoints: 0,
+        completedTasks: 0,
+        dateObj: new Date(date.getFullYear(), date.getMonth(), 1)
+      };
+    }
+
+    // Only completed tasks
+    if (task.completedPoints > 0) {
+      monthlyMap[monthKey].totalCompletedPoints += task.completedPoints;
+      monthlyMap[monthKey].completedTasks += 1;
+    }
+  });
+
+  // 2. Convert to sorted array
+  const result = Object.keys(monthlyMap)
+    .map(month => {
+      const m = monthlyMap[month];
+
+      return {
+        month,
+        totalCompletedPoints: m.totalCompletedPoints,
+        completedTasks: m.completedTasks,
+        averagePoints:
+          m.completedTasks > 0
+            ? (m.totalCompletedPoints / m.completedTasks).toFixed(2)
+            : "0.00",
+        date: m.dateObj
+      };
+    })
+    .sort((a, b) => a.date - b.date)
+    .map(({ date, ...rest }) => rest);
+
+  return result;
+}
+
+async function getBuckets(filterByClientId = null) {
+  try {
+    const response = await fetch(`https://api.notion.com/v1/data_sources/${BTC_BUCKETS_DATA_SOURCE_ID}/query`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${API_KEY}`,
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      body: JSON.stringify({ page_size: 100 })
+    });
+
+    const data = await response.json();
+
+    let buckets = data.results.map(page => {
+      const props = page.properties;
+      const totalPoints = props["Total Points"].rollup.number;
+      const completedValue = props["Completed Value"].rollup.number;
+      const progressDecimal = props["Progress %"].formula.number;
+
+      return {
+        id: page.id,
+        name: props["Name"].title[0]?.plain_text ?? "Untitled",
+        icon: page.icon?.emoji ?? null,
+        progressPercent: (progressDecimal * 100).toFixed(2) + "%",
+        completedPoints: completedValue,
+        totalPoints: totalPoints,
+        clientIds: props["👥 BTC Clients"].relation.map(r => r.id)
+      };
+    });
+
+    if (filterByClientId) {
+      buckets = buckets.filter(bucket =>
+        bucket.clientIds.includes(filterByClientId)
+      );
+    }
+
+    return buckets;
+
+  } catch (error) {
+    console.error("Error:", error.message);
+  }
+}
+
+getBuckets().then(buckets => {
+  console.log(JSON.stringify(buckets, null, 2));
+});
+
+
+app.get('/clients/:clientId/buckets', async (req, res) => {
+  try {
+    const { clientId } = req.params;
+
+    const buckets = await getBuckets(clientId);
+
+    res.json({
+      clientId,
+      total: buckets.length,
+      data: buckets
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/client/:clientId/monthly-average', async (req, res) => {
+  try {
+    const { clientId } = req.params;
+
+    const tasks = await getTasks();
+
+    const data = getMonthlyAverage(tasks, clientId);
+
+    res.json({
+      clientId,
+      months: data.length,
+      data
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+
+app.get('/client/:clientId', async (req, res) => {
+  const clients = await getClients();
+  const client = clients.find(c => c.id === req.params.clientId);
+  if (client) {
+    res.json(client);
+  } else {
+    res.status(404).json({ error: "Client not found" });
+  }
+});
+
+
 
 app.listen(3000, () => console.log("Server running on port 3000"));
