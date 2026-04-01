@@ -317,6 +317,10 @@ function getMonthlyAverage(tasks, clientId) {
 
   const monthlyMap = {};
 
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+
   filtered.forEach(task => {
     if (!task.createdTime) return;
 
@@ -331,7 +335,10 @@ function getMonthlyAverage(tasks, clientId) {
       monthlyMap[monthKey] = {
         totalCompletedPoints: 0,
         completedTasks: 0,
-        dateObj: new Date(date.getFullYear(), date.getMonth(), 1)
+        dateObj: new Date(date.getFullYear(), date.getMonth(), 1),
+        isCurrentMonth:
+          date.getMonth() === currentMonth &&
+          date.getFullYear() === currentYear
       };
     }
 
@@ -355,6 +362,7 @@ function getMonthlyAverage(tasks, clientId) {
           m.completedTasks > 0
             ? (m.totalCompletedPoints / m.completedTasks).toFixed(2)
             : "0.00",
+        isCurrentMonth: m.isCurrentMonth,
         date: m.dateObj
       };
     })
