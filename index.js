@@ -519,7 +519,7 @@ app.put("/assign-inspector/:opportunityId", async (req, res) => {
         `https://services.leadconnectorhq.com/contacts/${inspectorId}`,
         {
           customFields: [
-            { id: USED_FIELD_ID, value: used } 
+            { id: USED_FIELD_ID, value: String(used) } // always string
           ]
         },
         { headers }
@@ -593,7 +593,7 @@ async function fetchInspectors() {
 
         const available = Number(availableField?.value || 0);
         const cap = Number(totalField?.value || 0);
-        const used = cap - available;
+        const used = available;
 
         // Convert tags to specs
         const specs = (c.tags || []).map(
@@ -662,6 +662,20 @@ app.get("/inspectors", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch inspectors" });
   }
 });
+
+async function fetchPipelines() {
+  try {
+    const response = await axios.get(
+      `https://services.leadconnectorhq.com/opportunities/pipelines?locationId=${LOCATION_ID}`,
+      { headers }
+    );
+
+    return response.data.pipelines || [];
+  } catch (err) {
+    console.error("Error fetching pipelines:", err.response?.data || err.message);
+    return [];
+  }
+}
 
 async function fetchOpportunities() {
   try {
@@ -746,7 +760,6 @@ app.get("/new-inspections", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch inspections" });
   }
 });
-
 
 
 app.listen(3000, () => console.log("Server running on port 3000"));
