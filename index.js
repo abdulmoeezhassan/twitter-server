@@ -13,6 +13,8 @@ const GOOGLE_API_KEY = "AIzaSyBiq53-JT9R8TfcNnoUwkPBonfM4NxpQ4c";
 const API_KEY = "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";
 const BTC_BUCKETS_DATA_SOURCE_ID = "329b26a4-3077-808e-b870-000b9ddd1274";
 const BTC_TASKS_DATA_SOURCE_ID = "312b26a4-3077-8071-b771-000b9f20bebf";
+const LOCATION_ID = "gAefFGrUZxvnpxbtzDu2";
+const GHL_API_KEY = "pit-a043fc50-feac-4666-8c62-d5ccdb87c767";
 
 
 const PIPELINE_ID = "KmtTnj6BfnzRZXO0bdtP";
@@ -482,6 +484,12 @@ app.get('/client/:clientId', async (req, res) => {
 
 
 // GHL API routes
+
+const headers = {
+  Authorization: `Bearer ${GHL_API_KEY}`,
+  Version: "2021-07-28",
+  "Content-Type": "application/json",
+};
 
 app.put("/assign-inspector/:opportunityId", async (req, res) => {
   const { opportunityId } = req.params;
