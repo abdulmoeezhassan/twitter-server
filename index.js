@@ -22,6 +22,7 @@ const STAGE_ID = "97b3a522-97c0-485a-8724-c33d0245a90e";
 
 const STATUS_FIELD_ID = "iT2wP2gKNzT3s0V9kvAt";
 const INSPECTOR_FIELD_ID = "RvXeUTxDBa2ExVt9kUhR";
+const USED_FIELD_ID = "0ehWGset3zNbYOio3FM0";
 
 //Twitter API routes
 
