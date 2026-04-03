@@ -9,10 +9,19 @@ app.use(express.json());
 app.use(cors());
 
 
+const GOOGLE_API_KEY = "AIzaSyBiq53-JT9R8TfcNnoUwkPBonfM4NxpQ4c";
 const API_KEY = "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";
 const BTC_BUCKETS_DATA_SOURCE_ID = "329b26a4-3077-808e-b870-000b9ddd1274";
 const BTC_TASKS_DATA_SOURCE_ID = "312b26a4-3077-8071-b771-000b9f20bebf";
 
+
+const PIPELINE_ID = "KmtTnj6BfnzRZXO0bdtP";
+const STAGE_ID = "97b3a522-97c0-485a-8724-c33d0245a90e"; 
+
+const STATUS_FIELD_ID = "iT2wP2gKNzT3s0V9kvAt";
+const INSPECTOR_FIELD_ID = "RvXeUTxDBa2ExVt9kUhR";
+
+//Twitter API routes
 
 app.post("/tweet", async (req, res) => {
   const { consumerKey, consumerSecret, accessToken, accessTokenSecret, text, mediaId } = req.body;
@@ -467,6 +476,256 @@ app.get('/client/:clientId', async (req, res) => {
     res.json(client);
   } else {
     res.status(404).json({ error: "Client not found" });
+  }
+});
+
+
+
+// GHL API routes
+
+app.put("/assign-inspector/:opportunityId", async (req, res) => {
+  const { opportunityId } = req.params;
+  const { inspectorId } = req.body; 
+
+  try {
+    const response = await axios.put(
+      `https://services.leadconnectorhq.com/opportunities/${opportunityId}`,
+      {
+        pipelineId: PIPELINE_ID,
+        pipelineStageId: STAGE_ID,
+        status: "open",
+
+        customFields: [
+          {
+            id: STATUS_FIELD_ID,
+            value: "assigned",
+          },
+          {
+            id: INSPECTOR_FIELD_ID,
+            value: inspectorId,
+          },
+        ],
+      },
+      { headers }
+    );
+
+    res.json({
+      message: "Inspector assigned successfully",
+      data: response.data,
+    });
+  } catch (error) {
+    console.error(
+      "Error assigning inspector:",
+      error.response?.data || error.message
+    );
+
+    res.status(500).json({
+      error: "Failed to assign inspector",
+      details: error.response?.data || error.message,
+    });
+  }
+});
+
+function getRandomColor() {
+  return "#" + Math.floor(Math.random() * 16777215).toString(16);
+}
+
+function getRandomRadius() {
+  return Math.floor(Math.random() * 21) + 50;
+}
+
+// ---------- Fetch Inspectors ----------
+async function fetchInspectors() {
+  try {
+    const response = await axios.post(
+      "https://services.leadconnectorhq.com/contacts/search",
+      {
+        locationId: LOCATION_ID,
+        pageLimit: 100,
+      },
+      { headers }
+    );
+
+    const contacts = response.data.contacts || [];
+
+    const inspectorPromises = contacts
+      .filter((c) => {
+        const inspectorField = c.customFields?.find(
+          (f) => f.id === "JowqLT5Ufq8vnDmT47t8"
+        );
+        return inspectorField?.value === "true";
+      })
+      .map(async (c) => {
+        const phoneField = c.customFields?.find(
+          (f) => f.id === "gIC3EhawD7gzB9QOgOfj"
+        );
+
+        const addressField = c.customFields?.find(
+          (f) => f.id === "wyoVE8uKgCfa8theCmJ9"
+        );
+
+        // 👇 NEW FIELDS
+        const availableField = c.customFields?.find(
+          (f) => f.id === "0ehWGset3zNbYOio3FM0"
+        );
+
+        const totalField = c.customFields?.find(
+          (f) => f.id === "Qz3jdktda6mvol83pRI3"
+        );
+
+        const available = Number(availableField?.value || 0);
+        const cap = Number(totalField?.value || 0);
+        const used = cap - available;
+
+        // Convert tags to specs
+        const specs = (c.tags || []).map(
+          (tag) => tag.charAt(0).toUpperCase() + tag.slice(1)
+        );
+
+        const addr = addressField?.value || "";
+
+        let lat = null,
+          lng = null;
+        if (addr) {
+          try {
+            const geo = await axios.get(
+              "https://maps.googleapis.com/maps/api/geocode/json",
+              { params: { address: addr, key: GOOGLE_API_KEY } }
+            );
+            const loc = geo.data.results[0]?.geometry.location;
+            if (loc) {
+              lat = loc.lat;
+              lng = loc.lng;
+            }
+          } catch (err) {
+            console.error(`Geocode failed for "${addr}":`, err.message);
+          }
+        }
+
+        return {
+          id: c.id,
+          name: `${c.firstName || ""} ${c.lastName || ""}`.trim(),
+          city: c.city || "",
+          state: c.state || "",
+          phone: phoneField?.value || c.phone || "",
+          address: addr,
+          specs,
+          lat,
+          lng,
+          color: getRandomColor(),
+          radius: getRandomRadius(),
+
+          // 👇 NEW OUTPUT
+          cap: cap,
+          used: used,
+        };
+      });
+
+    const inspectors = await Promise.all(inspectorPromises);
+    return inspectors;
+  } catch (error) {
+    console.error(
+      "Error fetching inspectors:",
+      error.response?.data || error.message
+    );
+    return [];
+  }
+}
+
+// ---------- Inspectors Endpoint ----------
+app.get("/inspectors", async (req, res) => {
+  try {
+    const inspectors = await fetchInspectors();
+    res.json({
+      total: inspectors.length,
+      inspectors,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch inspectors" });
+  }
+});
+
+async function fetchOpportunities() {
+  try {
+    const response = await axios.post(
+      'https://services.leadconnectorhq.com/opportunities/search',
+      {
+        locationId: LOCATION_ID,
+        limit: 50,
+        page: 1,
+        additionalDetails: {
+          notes: true,
+          tasks: true,
+          calendarEvents: true,
+          unReadConversations: true
+        }
+      },
+      { headers }
+    );
+
+    const opportunities = response.data.opportunities || [];
+
+    const mapped = await Promise.all(
+      opportunities.map(async (opp) => {
+        const fieldMap = {};
+        opp.customFields?.forEach((field) => {
+          fieldMap[field.id] = field.fieldValueString || "";
+        });
+
+        const addr = fieldMap["oziRydJu8nFxWbzXDjpu"] || "";         
+        const type = fieldMap["N1J3OE5a0lB971dnk0YJ"] || "";         
+        const firm = fieldMap["EKErA5rZ2PS7i5iG9lO3"] || "";         
+        const note = fieldMap["gbtrxDQNuRZZeGGYo9gT"] || "";         
+        const status = fieldMap["iT2wP2gKNzT3s0V9kvAt"] || "";       
+        const assignedTo = fieldMap["RvXeUTxDBa2ExVt9kUhR"] || null; 
+
+        let lat = null, lng = null;
+        if (addr) {
+          try {
+            const geo = await axios.get(
+              "https://maps.googleapis.com/maps/api/geocode/json",
+              { params: { address: addr, key: GOOGLE_API_KEY } }
+            );
+            const loc = geo.data.results[0]?.geometry.location;
+            if (loc) {
+              lat = loc.lat;
+              lng = loc.lng;
+            }
+          } catch (err) {
+            console.error(`Geocode failed for "${addr}":`, err.message);
+          }
+        }
+
+        return {
+          id: opp.id,
+          name: opp.name,
+          addr,
+          lat,
+          lng,
+          firm,
+          type,
+          status,
+          assignedTo,
+          date: opp.createdAt ? new Date(opp.createdAt).toISOString().split("T")[0] : "",
+          note,
+        };
+      })
+    );
+
+    return mapped;
+  } catch (err) {
+    console.error("Error fetching opportunities:", err.response?.data || err.message);
+    return [];
+  }
+}
+
+app.get("/new-inspections", async (req, res) => {
+  try {
+    const inspections = await fetchOpportunities();
+     res.json({ total: inspections.length, inspections: inspections });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch inspections" });
   }
 });
 
