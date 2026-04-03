@@ -493,43 +493,52 @@ const headers = {
 
 app.put("/assign-inspector/:opportunityId", async (req, res) => {
   const { opportunityId } = req.params;
-  const { inspectorId } = req.body; 
+  const { inspectorId, used } = req.body;
 
   try {
-    const response = await axios.put(
-      `https://services.leadconnectorhq.com/opportunities/${opportunityId}`,
-      {
-        pipelineId: PIPELINE_ID,
-        pipelineStageId: STAGE_ID,
-        status: "open",
+    // Update both opportunity and contact in parallel
+    const [oppRes, contactRes] = await Promise.all([
+      // Update Opportunity
+      axios.put(
+        `https://services.leadconnectorhq.com/opportunities/${opportunityId}`,
+        {
+          pipelineId: PIPELINE_ID,
+          pipelineStageId: STAGE_ID,
+          status: "open",
+          customFields: [
+            { id: STATUS_FIELD_ID, value: "assigned" },
+            { id: INSPECTOR_FIELD_ID, value: inspectorId }
+          ],
+        },
+        { headers }
+      ),
 
-        customFields: [
-          {
-            id: STATUS_FIELD_ID,
-            value: "assigned",
-          },
-          {
-            id: INSPECTOR_FIELD_ID,
-            value: inspectorId,
-          },
-        ],
-      },
-      { headers }
-    );
+      // Update Contact (Inspector)
+      axios.put(
+        `https://services.leadconnectorhq.com/contacts/${inspectorId}`,
+        {
+          customFields: [
+            { id: USED_FIELD_ID, value: String(used) } // always string
+          ]
+        },
+        { headers }
+      )
+    ]);
 
-    res.json({
-      message: "Inspector assigned successfully",
-      data: response.data,
+    // ✅ Return a single response
+    return res.json({
+      message: "Assignment successful",
+      opportunity: oppRes.data,
+      contact: contactRes.data
     });
-  } catch (error) {
-    console.error(
-      "Error assigning inspector:",
-      error.response?.data || error.message
-    );
 
-    res.status(500).json({
+  } catch (err) {
+    console.error("Error assigning inspector:", err.response?.data || err.message);
+
+    // ✅ Single error response
+    return res.status(500).json({
       error: "Failed to assign inspector",
-      details: error.response?.data || error.message,
+      details: err.response?.data || err.message
     });
   }
 });
