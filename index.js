@@ -518,7 +518,7 @@ app.put("/assign-inspector/:opportunityId", async (req, res) => {
         `https://services.leadconnectorhq.com/contacts/${inspectorId}`,
         {
           customFields: [
-            { id: USED_FIELD_ID, value: String(used) } // always string
+            { id: USED_FIELD_ID, value: used } 
           ]
         },
         { headers }
