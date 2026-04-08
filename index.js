@@ -697,59 +697,71 @@ async function fetchOpportunities() {
 
     const opportunities = response.data.opportunities || [];
 
-    const mapped = await Promise.all(
-      opportunities.map(async (opp) => {
-        const fieldMap = {};
-        opp.customFields?.forEach((field) => {
-          fieldMap[field.id] = field.fieldValueString || "";
-        });
+const mapped = await Promise.all(
+  opportunities.map(async (opp) => {
+    const fieldMap = {};
+    opp.customFields?.forEach((field) => {
+      fieldMap[field.id] = field.fieldValueString || "";
+    });
 
-        const addr = fieldMap["oziRydJu8nFxWbzXDjpu"] || "";         
-        const type = fieldMap["N1J3OE5a0lB971dnk0YJ"] || "";         
-        const firm = fieldMap["EKErA5rZ2PS7i5iG9lO3"] || "";         
-        const note = fieldMap["gbtrxDQNuRZZeGGYo9gT"] || "";         
-        const status = fieldMap["iT2wP2gKNzT3s0V9kvAt"] || "";       
-        const assignedTo = fieldMap["RvXeUTxDBa2ExVt9kUhR"] || null; 
+    const addr = fieldMap["oziRydJu8nFxWbzXDjpu"] || "";
+    const type = fieldMap["N1J3OE5a0lB971dnk0YJ"] || "";
+    const firm = fieldMap["EKErA5rZ2PS7i5iG9lO3"] || "";
+    const note = fieldMap["gbtrxDQNuRZZeGGYo9gT"] || "";
+    const status = fieldMap["iT2wP2gKNzT3s0V9kvAt"] || "";
+    const assignedTo = fieldMap["RvXeUTxDBa2ExVt9kUhR"] || null;
+    const inspectionStatus = fieldMap["kWqaEbtFqXrWz4Z9yRJM"] || "";
 
-        let lat = null, lng = null;
-        if (addr) {
-          try {
-            const geo = await axios.get(
-              "https://maps.googleapis.com/maps/api/geocode/json",
-              { params: { address: addr, key: GOOGLE_API_KEY } }
-            );
-            const loc = geo.data.results[0]?.geometry.location;
-            if (loc) {
-              lat = loc.lat;
-              lng = loc.lng;
-            }
-          } catch (err) {
-            console.error(`Geocode failed for "${addr}":`, err.message);
+    if (inspectionStatus.toLowerCase() === "pending") return null;
+
+    let lat = null, lng = null;
+
+    if (addr) {
+      try {
+        const geo = await axios.get(
+          "https://maps.googleapis.com/maps/api/geocode/json",
+          {
+            params: { address: addr, key: GOOGLE_API_KEY },
           }
+        );
+
+        const loc = geo.data.results[0]?.geometry.location;
+        if (loc) {
+          lat = loc.lat;
+          lng = loc.lng;
         }
+      } catch (err) {
+        console.error(`Geocode failed for "${addr}":`, err.message);
+      }
+    }
 
-        return {
-          id: opp.id,
-          name: opp.name,
-          addr,
-          lat,
-          lng,
-          firm,
-          type,
-          status,
-          assignedTo,
-          date: opp.createdAt ? new Date(opp.createdAt).toISOString().split("T")[0] : "",
-          note,
-        };
-      })
-    );
+    return {
+      id: opp.id,
+      name: opp.name,
+      addr,
+      lat,
+      lng,
+      firm,
+      type,
+      status,
+      assignedTo,
+      inspectionStatus, // optional if you want to send
+      date: opp.createdAt
+        ? new Date(opp.createdAt).toISOString().split("T")[0]
+        : "",
+      note,
+    };
+  })
+);
 
-    return mapped;
+// ✅ Remove nulls (pending ones)
+return mapped.filter(Boolean);
   } catch (err) {
     console.error("Error fetching opportunities:", err.response?.data || err.message);
     return [];
   }
 }
+
 
 app.get("/new-inspections", async (req, res) => {
   try {
