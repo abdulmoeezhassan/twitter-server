@@ -773,5 +773,53 @@ app.get("/new-inspections", async (req, res) => {
   }
 });
 
+app.put("/complete-inspection/:id", async (req, res) => {
+  try {
+    const { id } = req.params; // GHL Opportunity ID
+    const { stageId, inspectorId, used } = req.body;
 
-app.listen(3000, () => console.log("Server running on port 3000"));
+    console.log("Completing inspection:", { id, stageId, inspectorId, used });
+
+    const [oppRes, contactRes] = await Promise.all([
+      // Update Opportunity
+      axios.put(
+        `https://services.leadconnectorhq.com/opportunities/${id}`,
+        {
+          pipelineId: PIPELINE_ID,
+          pipelineStageId: "783997a7-b961-438a-84b8-2a0a3d6e36a8",
+          status: "open",
+          customFields: [
+            { id: STATUS_FIELD_ID, value: "completed" },
+            { id: INSPECTOR_FIELD_ID, value: inspectorId }
+          ],
+        },
+        { headers }
+      ),
+
+      // Update Contact (Inspector)
+      axios.put(
+        `https://services.leadconnectorhq.com/contacts/${inspectorId}`,
+        {
+          customFields: [
+            { id: USED_FIELD_ID, value: String(used) } // always string
+          ]
+        },
+        { headers }
+      )
+    ]);
+
+    res.json({
+      success: true,
+      message: "Inspection completed and inspector updated",
+      opportunity: oppRes.data,
+      contact: contactRes.data,
+    });
+
+  } catch (err) {
+    console.error("Error completing inspection:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+
+app.listen(5000, () => console.log("Server running on port 5000"));
